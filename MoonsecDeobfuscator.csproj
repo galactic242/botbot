@@ -7,4 +7,12 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Discord.Net" Version="3.12.0" />
+    <PackageReference Include="Discord.Net.WebSocket" Version="3.12.0" />
+    <PackageReference Include="Antlr4.Runtime.Standard" Version="4.13.1" />
+    <PackageReference Include="NLua" Version="1.7.6" />
+    <PackageReference Include="QuikGraph" Version="2.5.0" />
+  </ItemGroup>
+
 </Project>
