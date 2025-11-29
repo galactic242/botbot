@@ -9,8 +9,10 @@ RUN dotnet restore
 COPY . ./
 RUN dotnet publish -c Release -o out
 
-# runtime stage
-FROM mcr.microsoft.com/dotnet/runtime:9.0
+# final stage (SDK image ensures dotnet exists)
+FROM mcr.microsoft.com/dotnet/sdk:9.0
 WORKDIR /app
 COPY --from=build /app/out ./
-CMD ["dotnet", "MoonsecDeobfuscator.dll"]7
+
+# run your bot
+CMD ["dotnet", "MoonsecDeobfuscator.dll"]
