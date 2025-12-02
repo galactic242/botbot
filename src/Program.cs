@@ -3,6 +3,7 @@ using Discord.WebSocket;
 using MoonsecDeobfuscator.Deobfuscation;
 using MoonsecDeobfuscator.Deobfuscation.Bytecode;
 using System.Diagnostics;
+using System.Net.Http;
 using System.Security.Cryptography;
 
 namespace MoonsecDeobfuscator
@@ -10,9 +11,7 @@ namespace MoonsecDeobfuscator
     public static class Program
     {
         private static DiscordSocketClient _client;
-        private static readonly ulong TargetChannelId = 1444258745336070164;
-
-        private static long LastSent = 0;
+        private static readonly ulong TargetChannelId = 123456789000000000;
 
         public static async Task Main(string[] args)
         {
@@ -28,128 +27,85 @@ namespace MoonsecDeobfuscator
                 GatewayIntents = GatewayIntents.All
             });
 
+            _client.Ready += async () =>
+            {
+                await _client.SetActivityAsync(new Game("Galactic Deobfuscation Service"));
+            };
+
             _client.MessageReceived += HandleMessage;
 
             await _client.LoginAsync(TokenType.Bot, token);
             await _client.StartAsync();
-
             await Task.Delay(-1);
         }
 
-        private static async Task HandleMessage(SocketMessage msg)
+        private static async Task HandleMessage(SocketMessage message)
         {
-            if (msg.Author.IsBot) return;
+            if (message.Author.IsBot) return;
 
-            bool inChannel = msg.Channel.Id == TargetChannelId;
-            bool inDM = msg.Channel is SocketDMChannel;
+            bool inChannel = message.Channel.Id == TargetChannelId;
+            bool inDM = message.Channel is SocketDMChannel;
+            if (!inChannel && !inDM) return;
 
-            if (!inChannel && !inDM)
-                return;
+            if (message.Attachments.Count == 0) return;
 
-            // delete non-file messages inside target channel
-            if (inChannel && msg.Attachments.Count == 0)
+            var att = message.Attachments.First();
+            var tempIn = Path.GetTempFileName() + ".lua";
+
+            using (var hc = new HttpClient())
             {
-                _ = msg.DeleteAsync();
-                return;
+                var bytes = await hc.GetByteArrayAsync(att.Url);
+                await File.WriteAllBytesAsync(tempIn, bytes);
             }
-
-            if (msg.Attachments.Count == 0) return;
-
-            // cooldown
-            if (Stopwatch.GetTimestamp() - LastSent < TimeSpan.FromSeconds(5).Ticks)
-                return;
-
-            LastSent = Stopwatch.GetTimestamp();
-
-            // download file
-            var att = msg.Attachments.First();
-            var tempInput = Path.GetTempFileName() + ".lua";
-            var fileBytes = await new HttpClient().GetByteArrayAsync(att.Url);
-            await File.WriteAllBytesAsync(tempInput, fileBytes);
 
             var sw = Stopwatch.StartNew();
 
-            // run deobfuscator
-            var raw = File.ReadAllText(tempInput);
-            var output = new Deobfuscator().Deobfuscate(raw);
+            var result = new Deobfuscator().Deobfuscate(File.ReadAllText(tempIn));
 
-            // output CLEAN TEXT
-            string cleanText;
+            // make random file names
+            string luaOut = Rand(8) + ".luau";
+            string bcOut = Rand(9) + ".luac";
 
-            if (output is Function fn)
-            {
-                // serialize bytecode
-                var byteFile = RandomName(9) + ".luac";
-                using (var fs = new FileStream(byteFile, FileMode.Create))
-                using (var ser = new Serializer(fs))
-                    ser.Serialize(fn);
+            // BYTECODE serialize
+            using (var fs = new FileStream(bcOut, FileMode.Create))
+            using (var ser = new Serializer(fs))
+                ser.Serialize(result);
 
-                // upload bytecode to luadec.metaworm.site
-                cleanText = await UploadBytecode(byteFile);
+            // upload bytecode to online luadec
+            var decompiled = await DecompileOnline(bcOut);
 
-                // strip comments
-                cleanText = RemoveComments(cleanText);
+            // strip lua comments
+            decompiled = RemoveComments(decompiled);
 
-                // prepend header
-                cleanText = "-- deobfuscated by galactic services join now https://discord.gg/angmZQJC8a\n\n" + cleanText;
+            // prepend banner
+            decompiled =
+                "-- deobfuscated by galactic services join now https://discord.gg/angmZQJC8a\n\n" +
+                decompiled;
 
-                // generate output name
-                var luaOut = RandomName(8) + ".luau";
+            File.WriteAllText(luaOut, decompiled);
 
-                // save clean file
-                File.WriteAllText(luaOut, cleanText);
+            sw.Stop();
+            long nanos = (long)(sw.Elapsed.TotalMilliseconds * 1_000_000);
 
-                sw.Stop();
-                long nanos = (long)(sw.Elapsed.TotalMilliseconds * 1_000_000);
+            await message.Channel.SendMessageAsync(
+                $"yo done in {nanos}ns\n" +
+                $"deobfuscated file: {luaOut}\n" +
+                $"bytecode file: {bcOut}\n" +
+                $"paste bytecode at luadec.metaworm.site to view original"
+            );
 
-                // send message
-                await msg.Channel.SendMessageAsync(
-                    $"yo finished in {nanos}ns\n" +
-                    $"deobfuscated file: {luaOut}\n" +
-                    $"bytecode file: {byteFile}\n" +
-                    $"here is bytecode aswell to see original code paste it into luadec.metaworm.site"
-                );
+            using (var fs1 = new FileStream(luaOut, FileMode.Open))
+                await message.Channel.SendFileAsync(fs1, luaOut);
 
-                // send files
-                using (var fs1 = new FileStream(luaOut, FileMode.Open))
-                    await msg.Channel.SendFileAsync(fs1, luaOut);
-                using (var fs2 = new FileStream(byteFile, FileMode.Open))
-                    await msg.Channel.SendFileAsync(fs2, byteFile);
-
-                return;
-            }
-            else
-            {
-                // the result is NOT bytecode output — only a normal deob string
-                cleanText = output.ToString();
-
-                cleanText = RemoveComments(cleanText);
-                cleanText = "-- deobfuscated by galactic services join now https://discord.gg/angmZQJC8a\n\n" + cleanText;
-
-                var luaOut = RandomName(8) + ".luau";
-                File.WriteAllText(luaOut, cleanText);
-
-                sw.Stop();
-                long nanos = (long)(sw.Elapsed.TotalMilliseconds * 1_000_000);
-
-                await msg.Channel.SendMessageAsync(
-                    $"yo finished in {nanos}ns\n" +
-                    $"deobfuscated file: {luaOut}\n" +
-                    $"no bytecode generated cause file wasnt function bytecode"
-                );
-
-                using (var fs = new FileStream(luaOut, FileMode.Open))
-                    await msg.Channel.SendFileAsync(fs, luaOut);
-            }
+            using (var fs2 = new FileStream(bcOut, FileMode.Open))
+                await message.Channel.SendFileAsync(fs2, bcOut);
         }
 
-        private static async Task<string> UploadBytecode(string path)
+        private static async Task<string> DecompileOnline(string path)
         {
             using var hc = new HttpClient();
             using var form = new MultipartFormDataContent();
-            var bytes = await File.ReadAllBytesAsync(path);
-            var file = new ByteArrayContent(bytes);
-            form.Add(file, "file", Path.GetFileName(path));
+            form.Add(new ByteArrayContent(File.ReadAllBytes(path)), "file", Path.GetFileName(path));
 
             var res = await hc.PostAsync("https://luadec.metaworm.site/decompile", form);
             return await res.Content.ReadAsStringAsync();
@@ -157,12 +113,12 @@ namespace MoonsecDeobfuscator
 
         private static string RemoveComments(string src)
         {
-            var lines = src.Split('\n');
-            var clean = lines.Where(l => !l.TrimStart().StartsWith("--"));
-            return string.Join("\n", clean);
+            return string.Join("\n",
+                src.Split('\n').Where(l => !l.TrimStart().StartsWith("--"))
+            );
         }
 
-        private static string RandomName(int len)
+        private static string Rand(int len)
         {
             const string chars = "abcdefghijklmnopqrstuvwxyz";
             return new string(Enumerable.Range(0, len)
