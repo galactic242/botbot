@@ -13,6 +13,13 @@
     <PackageReference Include="Antlr4.Runtime.Standard" Version="4.13.1" />
     <PackageReference Include="NLua" Version="1.7.6" />
     <PackageReference Include="QuikGraph" Version="2.5.0" />
+
+    <!-- required for the WS decompiler -->
+    <PackageReference Include="Websocket.Client" Version="4.6.1" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+
+    <!-- crypto compatibility for containers -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="8.0.0" />
   </ItemGroup>
 
 </Project>
